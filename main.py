@@ -1,6 +1,6 @@
 import customtkinter as ctk
 import tkinter as tk
-from logic import ClipboardHistoryManager
+from logic import ClipboardHistoryManager, SettingsManager
 
 
 class ClipboardViewer(ctk.CTk):
@@ -10,12 +10,16 @@ class ClipboardViewer(ctk.CTk):
         self.geometry("760x500")
         self.minsize(680, 440)
         self.configure(fg_color="#0f172a")
-        self.is_pinned = False
 
-        self.history = ClipboardHistoryManager(max_items=100)
-        self.poll_interval_ms = 500
+        self.settings_manager = SettingsManager()
+        self.settings = self.settings_manager.load_settings()
+        self.is_pinned = bool(self.settings.get("always_on_top", False))
+
+        self.history = ClipboardHistoryManager(max_items=self.settings.get("max_history", 100))
+        self.poll_interval_ms = int(self.settings.get("poll_interval_ms", 500))
         self.visible_indices = []
         self.help_window = None
+        self.settings_window = None
 
         # === Top Bar ===
         top_frame = ctk.CTkFrame(self, fg_color="#111827", corner_radius=14)
@@ -43,16 +47,6 @@ class ClipboardViewer(ctk.CTk):
         actions = ctk.CTkFrame(top_frame, fg_color="transparent")
         actions.pack(side="right", padx=10, pady=10)
 
-        self.pin_btn = ctk.CTkButton(
-            actions,
-            text="Pin",
-            width=86,
-            fg_color="#334155",
-            hover_color="#475569",
-            command=self.toggle_pin,
-        )
-        self.pin_btn.pack(side="right", padx=(8, 0))
-
         refresh_btn = ctk.CTkButton(
             actions,
             text="Refresh",
@@ -73,6 +67,16 @@ class ClipboardViewer(ctk.CTk):
         )
         clear_btn.pack(side="right")
 
+        settings_btn = ctk.CTkButton(
+            actions,
+            text="Settings",
+            width=90,
+            fg_color="#6b7280",
+            hover_color="#4b5563",
+            command=self.show_settings,
+        )
+        settings_btn.pack(side="right", padx=(8, 0))
+
         help_btn = ctk.CTkButton(
             actions,
             text="Help",
@@ -82,6 +86,27 @@ class ClipboardViewer(ctk.CTk):
             command=self.show_help,
         )
         help_btn.pack(side="right", padx=(8, 0))
+
+        self.attributes("-topmost", self.is_pinned)
+        if self.is_pinned:
+            self.pin_btn = ctk.CTkButton(
+                actions,
+                text="Unpin",
+                width=86,
+                fg_color="#334155",
+                hover_color="#475569",
+                command=self.toggle_pin,
+            )
+        else:
+            self.pin_btn = ctk.CTkButton(
+                actions,
+                text="Pin",
+                width=86,
+                fg_color="#334155",
+                hover_color="#475569",
+                command=self.toggle_pin,
+            )
+        self.pin_btn.pack(side="right", padx=(8, 0))
 
         # === Main Layout ===
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -279,6 +304,8 @@ class ClipboardViewer(ctk.CTk):
         self.is_pinned = not self.is_pinned
         self.attributes("-topmost", self.is_pinned)
         self.pin_btn.configure(text="Unpin" if self.is_pinned else "Pin")
+        self.settings_manager.save_settings({"always_on_top": self.is_pinned})
+        self.settings["always_on_top"] = self.is_pinned
         self.set_status("Pinned on top" if self.is_pinned else "Pin disabled")
 
     def set_status(self, message):
@@ -499,6 +526,102 @@ class ClipboardViewer(ctk.CTk):
         if self.help_window.winfo_exists():
             self.help_window.destroy()
         self.help_window = None
+
+    def show_settings(self):
+        if self.settings_window is not None and self.settings_window.winfo_exists():
+            self.settings_window.focus()
+            return
+
+        settings_window = ctk.CTkToplevel(self)
+        settings_window.title("Clippy Settings")
+        settings_window.geometry("440x260")
+        settings_window.transient(self)
+        settings_window.grab_set()
+        settings_window.resizable(False, False)
+        settings_window.configure(fg_color="#111827")
+        settings_window.protocol("WM_DELETE_WINDOW", lambda: self.close_settings(settings_window))
+        self.settings_window = settings_window
+
+        title = ctk.CTkLabel(
+            settings_window,
+            text="Settings",
+            font=ctk.CTkFont(size=20, weight="bold"),
+            text_color="#f8fafc",
+        )
+        title.pack(pady=(18, 14))
+
+        form = ctk.CTkFrame(settings_window, fg_color="transparent")
+        form.pack(fill="both", expand=True, padx=20)
+
+        max_history_var = ctk.IntVar(value=self.settings["max_history"])
+        poll_var = ctk.IntVar(value=self.settings["poll_interval_ms"])
+        always_on_top_var = ctk.BooleanVar(value=self.settings["always_on_top"])
+
+        fields = [
+            ("Max clipboard items", max_history_var, 10, 500),
+            ("Clipboard poll interval (ms)", poll_var, 200, 5000),
+        ]
+
+        for label_text, variable, minimum, maximum in fields:
+            row = ctk.CTkFrame(form, fg_color="transparent")
+            row.pack(fill="x", pady=8)
+
+            label = ctk.CTkLabel(row, text=label_text, width=24, anchor="w", text_color="#e2e8f0")
+            label.pack(side="left")
+
+            entry = ctk.CTkEntry(row, textvariable=variable, width=120, fg_color="#0b1220", border_color="#334155")
+            entry.pack(side="right")
+
+        checkbox = ctk.CTkCheckBox(
+            form,
+            text="Keep window on top by default",
+            variable=always_on_top_var,
+            checkbox_height=18,
+            checkbox_width=18,
+            text_color="#e2e8f0",
+        )
+        checkbox.pack(anchor="w", pady=(8, 12))
+
+        save_btn = ctk.CTkButton(
+            settings_window,
+            text="Save Settings",
+            command=lambda: self.apply_settings(
+                max_history_var.get(),
+                poll_var.get(),
+                always_on_top_var.get(),
+                settings_window,
+            ),
+        )
+        save_btn.pack(pady=(0, 16))
+
+    def apply_settings(self, max_history, poll_interval_ms, always_on_top, window=None):
+        try:
+            new_settings = self.settings_manager.save_settings({
+                "max_history": int(max_history),
+                "poll_interval_ms": int(poll_interval_ms),
+                "always_on_top": bool(always_on_top),
+            })
+        except (TypeError, ValueError):
+            self.set_status("Settings must use valid numeric values")
+            return
+
+        self.settings = new_settings
+        self.history.set_max_items(new_settings["max_history"])
+        self.poll_interval_ms = new_settings["poll_interval_ms"]
+        self.is_pinned = new_settings["always_on_top"]
+        self.attributes("-topmost", self.is_pinned)
+        self.pin_btn.configure(text="Unpin" if self.is_pinned else "Pin")
+        self.load_items(selected_index=self.get_selected_history_index(), fallback_to_first=True)
+        self.set_status("Settings saved")
+
+        if window is not None:
+            self.close_settings(window)
+
+    def close_settings(self, window=None):
+        target_window = window or self.settings_window
+        if target_window is not None and target_window.winfo_exists():
+            target_window.destroy()
+        self.settings_window = None
 
     def show_preview(self, event):
         self.show_selected_preview()

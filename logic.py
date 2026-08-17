@@ -5,15 +5,84 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import tkinter as tk
+
+DEFAULT_SETTINGS: Dict[str, Any] = {
+	"max_history": 100,
+	"poll_interval_ms": 500,
+	"always_on_top": False,
+}
 
 
 @dataclass
 class ClipboardEntry:
 	text: str
 	pinned: bool = False
+
+
+@dataclass
+class SettingsManager:
+	"""Load and save app settings in the project settings folder."""
+
+	settings_path: Path = field(
+		default_factory=lambda: Path(__file__).resolve().parent / "settings" / "settings.json"
+	)
+
+	def _normalize_settings(self, settings: Dict[str, Any]) -> Dict[str, Any]:
+		normalized = DEFAULT_SETTINGS.copy()
+		if not isinstance(settings, dict):
+			return normalized
+
+		try:
+			max_history = int(settings.get("max_history", DEFAULT_SETTINGS["max_history"]))
+		except (TypeError, ValueError):
+			max_history = DEFAULT_SETTINGS["max_history"]
+		normalized["max_history"] = max(10, min(max_history, 500))
+
+		try:
+			poll_interval_ms = int(settings.get("poll_interval_ms", DEFAULT_SETTINGS["poll_interval_ms"]))
+		except (TypeError, ValueError):
+			poll_interval_ms = DEFAULT_SETTINGS["poll_interval_ms"]
+		normalized["poll_interval_ms"] = max(200, min(poll_interval_ms, 5000))
+
+		always_on_top = settings.get("always_on_top", DEFAULT_SETTINGS["always_on_top"])
+		normalized["always_on_top"] = bool(always_on_top)
+		return normalized
+
+	def load_settings(self) -> Dict[str, Any]:
+		if not self.settings_path.exists():
+			return self.save_settings(DEFAULT_SETTINGS)
+
+		try:
+			raw = json.loads(self.settings_path.read_text(encoding="utf-8"))
+		except (json.JSONDecodeError, OSError):
+			return self.save_settings(DEFAULT_SETTINGS)
+
+		if raw in (None, ""):
+			return self.save_settings(DEFAULT_SETTINGS)
+		return self._normalize_settings(raw)
+
+	def save_settings(self, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+		current: Dict[str, Any] = DEFAULT_SETTINGS.copy()
+		if self.settings_path.exists():
+			try:
+				raw = json.loads(self.settings_path.read_text(encoding="utf-8"))
+			except (json.JSONDecodeError, OSError):
+				raw = DEFAULT_SETTINGS
+			current.update(self._normalize_settings(raw))
+
+		if settings is not None:
+			merged = current.copy()
+			merged.update(settings)
+			current = self._normalize_settings(merged)
+		else:
+			current = self._normalize_settings(current)
+
+		self.settings_path.parent.mkdir(parents=True, exist_ok=True)
+		self.settings_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+		return current
 
 
 @dataclass
@@ -61,6 +130,12 @@ class ClipboardHistoryManager:
 			self._history = self._history[: self.max_items]
 		self._save_to_disk()
 		return True
+
+	def set_max_items(self, max_items: int) -> None:
+		self.max_items = max(1, int(max_items))
+		if len(self._history) > self.max_items:
+			self._history = self._history[: self.max_items]
+		self._save_to_disk()
 
 	def get_history(self) -> List[ClipboardEntry]:
 		return list(self._history)
