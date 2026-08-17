@@ -1,0 +1,102 @@
+# Clippy
+
+Clippy is a lightweight Windows clipboard history app built with Python and CustomTkinter. It watches your clipboard, stores recent copied text, lets you search through history, pin important entries, and copy items back into the clipboard.
+
+## Features
+
+- Live clipboard monitoring
+- History list with preview pane
+- Search through previous clipboard entries
+- Pin important items so they stay at the top
+- Delete individual entries
+- Clear unpinned history while preserving pinned items
+- Always-on-top window toggle
+- Keyboard shortcuts for faster use
+- Saved clipboard history to disk between runs
+- Graceful empty and error states
+
+## Screenshots
+
+No screenshots yet, but the app includes:
+- a history panel on the left
+- a preview panel on the right
+- status feedback at the bottom
+- a help dialog with keyboard shortcuts
+
+## Requirements
+
+- Python 3.10 or newer recommended
+- Windows operating system
+- pip
+
+## Installation
+
+1. Open a terminal in the project folder.
+2. Create and activate a virtual environment if you want an isolated setup:
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+3. Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Run the app
+
+From the project folder:
+
+```bash
+python main.py
+```
+
+Or, if using the venv directly:
+
+```bash
+.venv\Scripts\python.exe main.py
+```
+
+## Keyboard shortcuts
+
+- Enter: Copy the selected item to the clipboard
+- Delete: Delete the selected item from history
+- Ctrl + F: Focus the search box
+- Ctrl + L: Clear the search field
+- Esc: Clear selection
+- Help button: Open the shortcut guide
+
+## How it works
+
+The app polls the system clipboard periodically and stores new text entries in memory and in a local JSON file named `clipboard_history.json`. Pinned items stay above regular items and are preserved when using Clear.
+
+## Project structure
+
+```text
+clippy/
+├── main.py
+├── logic.py
+├── requirements.txt
+├── clipboard_history.json
+├── README
+```
+
+## Notes
+
+- The clipboard history is saved locally in the project folder.
+- This app is intended as a personal productivity utility and is still easy to extend.
+- The current implementation focuses on text-based clipboard history.
+
+## Future ideas
+
+- Add URL detection and open-in-browser actions
+- Add favorites or tagging
+- Add tray icon / background mode
+- Add theme toggle
+- Add settings panel for max history size and refresh interval
+
+## License
+
+This project currently does not include a formal license file. If you plan to publish or share it publicly, consider adding an open-source license such as MIT.

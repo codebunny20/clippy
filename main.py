@@ -144,6 +144,15 @@ class ClipboardViewer(ctk.CTk):
         self.listbox.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.listbox.bind("<<ListboxSelect>>", self.show_preview)
 
+        self.empty_state_label = ctk.CTkLabel(
+            history_panel,
+            text="No clipboard items yet",
+            text_color="#94a3b8",
+            font=ctk.CTkFont(size=13),
+            anchor="center",
+        )
+        self.empty_state_label.pack_forget()
+
         preview_panel = ctk.CTkFrame(main_frame, fg_color="#111827", corner_radius=14)
         preview_panel.grid(row=0, column=1, sticky="nsew")
 
@@ -239,9 +248,15 @@ class ClipboardViewer(ctk.CTk):
 
         if visible_count == 0:
             self.preview.delete("1.0", "end")
+            self.preview.insert("end", "No item selected")
             self.pin_item_btn.configure(text="Pin Item")
             self.update_action_buttons(False)
+            self.empty_state_label.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+            self.listbox.pack_forget()
             return
+
+        self.empty_state_label.pack_forget()
+        self.listbox.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
         if selected_index is not None and selected_index in self.visible_indices:
             self.select_visible_index(self.visible_indices.index(selected_index))
@@ -275,10 +290,13 @@ class ClipboardViewer(ctk.CTk):
             self.set_status("Select an item to copy")
             return
 
-        text = self.history.get_item(selected_index).text
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        self.set_status("Copied selected item to clipboard")
+        try:
+            text = self.history.get_item(selected_index).text
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            self.set_status("Copied selected item to clipboard")
+        except Exception:
+            self.set_status("Clipboard is unavailable right now")
 
     def delete_selected(self):
         selected_index = self.get_selected_history_index()
@@ -328,6 +346,7 @@ class ClipboardViewer(ctk.CTk):
         selected_index = self.get_selected_history_index()
         if selected_index is None:
             self.preview.delete("1.0", "end")
+            self.preview.insert("end", "No item selected")
             self.pin_item_btn.configure(text="Pin Item")
             self.update_action_buttons(False)
             return
@@ -351,6 +370,7 @@ class ClipboardViewer(ctk.CTk):
     def select_first_item(self):
         if self.listbox.size() == 0:
             self.preview.delete("1.0", "end")
+            self.preview.insert("end", "No item selected")
             self.pin_item_btn.configure(text="Pin Item")
             self.update_action_buttons(False)
             return
@@ -358,14 +378,17 @@ class ClipboardViewer(ctk.CTk):
         self.select_visible_index(0)
 
     def refresh_history(self):
-        if self.history.poll_system_clipboard(self):
-            self.load_items(selected_index=0, fallback_to_first=True)
-            self.set_status("Refreshed and captured new clipboard text")
-        elif self.listbox.size() > 0:
-            self.show_selected_preview()
-            self.set_status("No new clipboard text")
-        else:
-            self.set_status("Nothing to show")
+        try:
+            if self.history.poll_system_clipboard(self):
+                self.load_items(selected_index=0, fallback_to_first=True)
+                self.set_status("Refreshed and captured new clipboard text")
+            elif self.listbox.size() > 0:
+                self.show_selected_preview()
+                self.set_status("No new clipboard text")
+            else:
+                self.set_status("Clipboard is empty")
+        except Exception:
+            self.set_status("Clipboard is unavailable right now")
 
     def clear_history(self):
         self.history.clear()
@@ -374,9 +397,12 @@ class ClipboardViewer(ctk.CTk):
         self.set_status("History cleared")
 
     def check_clipboard(self):
-        if self.history.poll_system_clipboard(self):
-            self.load_items(selected_index=0, fallback_to_first=True)
-            self.set_status("New clipboard text captured")
+        try:
+            if self.history.poll_system_clipboard(self):
+                self.load_items(selected_index=0, fallback_to_first=True)
+                self.set_status("New clipboard text captured")
+        except Exception:
+            self.set_status("Clipboard check failed; retrying")
         self.after(self.poll_interval_ms, self.check_clipboard)
 
     def on_enter_pressed(self, event=None):

@@ -91,8 +91,9 @@ class ClipboardHistoryManager:
 		return entry.pinned
 
 	def clear(self) -> None:
-		self._history.clear()
-		self._last_seen = None
+		pinned_entries = [entry for entry in self._history if entry.pinned]
+		self._history = pinned_entries
+		self._last_seen = pinned_entries[0].text if pinned_entries else None
 		self._save_to_disk()
 
 	def _normalize_order(self) -> None:
