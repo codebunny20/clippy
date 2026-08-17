@@ -15,6 +15,7 @@ class ClipboardViewer(ctk.CTk):
         self.history = ClipboardHistoryManager(max_items=100)
         self.poll_interval_ms = 500
         self.visible_indices = []
+        self.help_window = None
 
         # === Top Bar ===
         top_frame = ctk.CTkFrame(self, fg_color="#111827", corner_radius=14)
@@ -210,12 +211,15 @@ class ClipboardViewer(ctk.CTk):
 
         self.bind("<Return>", self.on_enter_pressed)
         self.bind("<Delete>", self.on_delete_pressed)
+        self.bind("<Control-f>", self.on_focus_search)
+        self.bind("<Control-l>", self.on_clear_search)
+        self.bind("<Escape>", self.on_escape_pressed)
 
         # Load initial items
-        self.load_items()
+        self.load_items(fallback_to_first=True)
         self.after(100, self.check_clipboard)
 
-    def load_items(self):
+    def load_items(self, selected_index=None, fallback_to_first=False):
         self.listbox.delete(0, tk.END)
         query = self.search_var.get() if hasattr(self, "search_var") else ""
         self.visible_indices = self.history.get_filtered_indices(query)
@@ -232,13 +236,29 @@ class ClipboardViewer(ctk.CTk):
             self.count_label.configure(text=f"{visible_count}/{total_count} shown")
         else:
             self.count_label.configure(text=f"{total_count} item" if total_count == 1 else f"{total_count} items")
+
         if visible_count == 0:
             self.preview.delete("1.0", "end")
             self.pin_item_btn.configure(text="Pin Item")
+            self.update_action_buttons(False)
+            return
+
+        if selected_index is not None and selected_index in self.visible_indices:
+            self.select_visible_index(self.visible_indices.index(selected_index))
+        elif fallback_to_first:
+            self.select_first_item()
+        else:
+            self.update_action_buttons(False)
 
     def update_preview(self, text):
         self.preview.delete("1.0", "end")
         self.preview.insert("end", text)
+
+    def update_action_buttons(self, has_selection):
+        button_state = "normal" if has_selection else "disabled"
+        self.copy_btn.configure(state=button_state)
+        self.delete_btn.configure(state=button_state)
+        self.pin_item_btn.configure(state=button_state)
 
     def toggle_pin(self):
         self.is_pinned = not self.is_pinned
@@ -267,8 +287,8 @@ class ClipboardViewer(ctk.CTk):
             return
 
         self.history.delete_item(selected_index)
-        self.load_items()
-        self.select_first_item()
+        next_index = min(selected_index, len(self.history.get_history()) - 1)
+        self.load_items(selected_index=next_index, fallback_to_first=True)
         self.set_status("Selected item deleted")
 
     def toggle_selected_pin(self):
@@ -277,17 +297,16 @@ class ClipboardViewer(ctk.CTk):
             self.set_status("Select an item to pin")
             return
 
+        selected_text = self.history.get_item(selected_index).text
         is_now_pinned = self.history.toggle_pinned(selected_index)
-        self.load_items()
-        self.select_first_item()
+        self.load_items(selected_index=self.find_history_index_by_text(selected_text), fallback_to_first=True)
         if is_now_pinned:
             self.set_status("Selected item pinned")
         else:
             self.set_status("Selected item unpinned")
 
     def on_search_change(self, *_):
-        self.load_items()
-        self.select_first_item()
+        self.load_items(selected_index=self.get_selected_history_index(), fallback_to_first=True)
 
     def get_selected_history_index(self):
         selection = self.listbox.curselection()
@@ -299,32 +318,48 @@ class ClipboardViewer(ctk.CTk):
             return None
         return self.visible_indices[visible_index]
 
+    def find_history_index_by_text(self, text):
+        for index, item in enumerate(self.history.get_history()):
+            if item.text == text:
+                return index
+        return None
+
     def show_selected_preview(self):
         selected_index = self.get_selected_history_index()
         if selected_index is None:
             self.preview.delete("1.0", "end")
             self.pin_item_btn.configure(text="Pin Item")
+            self.update_action_buttons(False)
             return
 
         item = self.history.get_item(selected_index)
         self.update_preview(item.text)
         self.pin_item_btn.configure(text="Unpin Item" if item.pinned else "Pin Item")
+        self.update_action_buttons(True)
+
+    def select_visible_index(self, visible_index):
+        if visible_index < 0 or visible_index >= self.listbox.size():
+            self.update_action_buttons(False)
+            return
+
+        self.listbox.selection_clear(0, tk.END)
+        self.listbox.selection_set(visible_index)
+        self.listbox.activate(visible_index)
+        self.listbox.see(visible_index)
+        self.show_selected_preview()
 
     def select_first_item(self):
         if self.listbox.size() == 0:
             self.preview.delete("1.0", "end")
             self.pin_item_btn.configure(text="Pin Item")
+            self.update_action_buttons(False)
             return
 
-        self.listbox.selection_clear(0, tk.END)
-        self.listbox.selection_set(0)
-        self.listbox.activate(0)
-        self.show_selected_preview()
+        self.select_visible_index(0)
 
     def refresh_history(self):
         if self.history.poll_system_clipboard(self):
-            self.load_items()
-            self.select_first_item()
+            self.load_items(selected_index=0, fallback_to_first=True)
             self.set_status("Refreshed and captured new clipboard text")
         elif self.listbox.size() > 0:
             self.show_selected_preview()
@@ -340,26 +375,66 @@ class ClipboardViewer(ctk.CTk):
 
     def check_clipboard(self):
         if self.history.poll_system_clipboard(self):
-            self.load_items()
-            self.select_first_item()
+            self.load_items(selected_index=0, fallback_to_first=True)
             self.set_status("New clipboard text captured")
         self.after(self.poll_interval_ms, self.check_clipboard)
 
     def on_enter_pressed(self, event=None):
+        if not self.can_use_history_shortcuts():
+            return None
         self.copy_selected()
         return "break"
 
     def on_delete_pressed(self, event=None):
+        if not self.can_use_history_shortcuts():
+            return None
         self.delete_selected()
         return "break"
 
+    def on_focus_search(self, event=None):
+        self.search_entry.focus()
+        self.search_entry.icursor("end")
+        return "break"
+
+    def on_clear_search(self, event=None):
+        self.search_var.set("")
+        self.search_entry.focus()
+        self.set_status("Search cleared")
+        return "break"
+
+    def on_escape_pressed(self, event=None):
+        focused_widget = self.focus_get()
+        if focused_widget is not None and focused_widget.winfo_class() == "TEntry":
+            self.search_entry.selection_clear()
+        self.listbox.selection_clear(0, tk.END)
+        self.preview.delete("1.0", "end")
+        self.pin_item_btn.configure(text="Pin Item")
+        self.update_action_buttons(False)
+        self.set_status("Selection cleared")
+        return "break"
+
+    def can_use_history_shortcuts(self):
+        focused_widget = self.focus_get()
+        if focused_widget is None:
+            return True
+
+        widget_class = focused_widget.winfo_class()
+        return widget_class not in {"Entry", "Text", "TEntry"}
+
     def show_help(self):
+        if self.help_window is not None and self.help_window.winfo_exists():
+            self.help_window.focus()
+            return
+
         help_window = ctk.CTkToplevel(self)
         help_window.title("Clippy Help")
-        help_window.geometry("420x300")
+        help_window.geometry("430x320")
         help_window.transient(self)
         help_window.grab_set()
         help_window.resizable(False, False)
+        help_window.configure(fg_color="#111827")
+        help_window.protocol("WM_DELETE_WINDOW", self.close_help)
+        self.help_window = help_window
 
         help_label = ctk.CTkLabel(
             help_window,
@@ -387,8 +462,17 @@ class ClipboardViewer(ctk.CTk):
             desc_label = ctk.CTkLabel(row, text=explanation, anchor="w", text_color="#cbd5e1")
             desc_label.pack(side="left", fill="x", expand=True)
 
-        close_btn = ctk.CTkButton(help_window, text="Close", command=help_window.destroy)
+        close_btn = ctk.CTkButton(help_window, text="Close", command=self.close_help)
         close_btn.pack(pady=(12, 18))
+        close_btn.focus()
+
+    def close_help(self):
+        if self.help_window is None:
+            return
+
+        if self.help_window.winfo_exists():
+            self.help_window.destroy()
+        self.help_window = None
 
     def show_preview(self, event):
         self.show_selected_preview()
